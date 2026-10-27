@@ -1,0 +1,239 @@
+<!doctype html>
+<!--
+  QR City Hunt — Covent Garden
+  Fichero unico, sin backend. Hosteable en GitHub Pages.
+
+  COMO FUNCIONA
+  Cada QR de la ruta codifica una URL del tipo:
+      index.html?c=PORTERHOUSE
+  El codigo se valida contra ROUTE. Si es correcto, se marca visitado en
+  localStorage y se muestra la pista siguiente. El ultimo QR da el codigo de
+  premio.
+
+  LIMITACIONES REALES (leer antes de vender esto)
+  1. Los codigos son publicos: cualquiera que vea un QR puede compartir la URL.
+     Con un codigo por parada, un grupo puede saltarse la ruta. Mitigacion:
+     codigos por edicion (rotar) o codigo personal por participante.
+  2. localStorage se borra facil. No es anti-trampas, es una experiencia.
+  3. Sin backend no hay cupo, ni validacion de pago, ni lista de correo.
+     La lista se recoge en Luma, no aqui.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR City Hunt — Covent Garden</title>
+<style>
+:root{--navy:#0e2233;--teal:#0f7a72;--paper:#f7f5f0;--ink:#1b2833;--muted:#5a6b78;--line:#d9d4ca;--amber:#c8842a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:24px 20px 60px}
+header{background:var(--navy);color:#eaf0f4;padding:16px 0}
+header .wrap{padding:0 20px;display:flex;justify-content:space-between;align-items:center}
+.mark{font-weight:650;letter-spacing:.02em}
+.mark i{display:inline-block;width:9px;height:9px;background:var(--teal);border-radius:2px;margin-right:8px}
+.step{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#9fb3c0}
+h1{font-size:26px;line-height:1.2;margin:22px 0 8px;letter-spacing:-.01em}
+p{margin:0 0 14px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:18px 0}
+.card h2{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px}
+#hint{font-size:18px;line-height:1.5}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:#e6f2f0;color:#0b5c56;margin-bottom:8px}
+.pill.done{background:#eceff1;color:#5b6b78}
+.pill.prize{background:#fbf1e2;color:#7a4d12}
+input,button{font:inherit}
+input{width:100%;padding:13px 14px;border:1px solid #c9c3b8;border-radius:8px;background:#fff;text-transform:uppercase;letter-spacing:.08em}
+button{width:100%;margin-top:10px;padding:13px 18px;border:0;border-radius:8px;background:var(--teal);color:#fff;font-weight:650}
+button:active{transform:translateY(1px)}
+.stops{list-style:none;padding:0;margin:0}
+.stops li{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14.5px}
+.stops li:last-child{border-bottom:0}
+.stops .n{flex:0 0 22px;height:22px;border-radius:50%;background:#eceff1;color:#5b6b78;display:grid;place-items:center;font-size:12px;font-weight:700}
+.stops li.on .n{background:var(--teal);color:#fff}
+.stops .t{color:var(--muted);font-size:12px}
+.map{width:100%;height:240px;border:0;border-radius:8px}
+code.prize{display:block;font-family:ui-monospace,Menlo,monospace;font-size:20px;letter-spacing:.1em;background:#fbf1e2;border:1px dashed var(--amber);border-radius:8px;padding:14px;text-align:center;color:#7a4d12}
+.msg{padding:11px 13px;border-radius:8px;font-size:14.5px;margin:12px 0}
+.msg.err{background:#fdecea;color:#8a2a20}
+.msg.ok{background:#e6f2f0;color:#0b5c56}
+.rules{font-size:13px;color:var(--muted)}
+.rules b{color:#7a4d12}
+footer{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px}
+a{color:var(--teal)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="mark"><i></i> QR CITY HUNT</div>
+    <div class="step" id="progress">0 / 5</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h1>Covent Garden</h1>
+  <p style="color:var(--muted)">Five stops. Scan the code at each one. The last code is your prize.</p>
+
+  <div class="card">
+    <h2>Your clue</h2>
+    <div id="hint">Press start, then find the first code.</div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card" id="entryCard">
+    <h2>Enter a code</h2>
+    <input id="code" placeholder="ABC123" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <button onclick="check()">Check code</button>
+  </div>
+
+  <div class="card">
+    <h2>Route</h2>
+    <ul class="stops" id="stops"></ul>
+    <p class="t" style="color:var(--muted);font-size:12.5px;margin-top:10px">
+      Approximately 1 km in total, 12 minutes of walking between stops.
+      The time is in the puzzles, not the distance.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Map</h2>
+    <iframe class="map" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=-0.1315%2C51.5082%2C-0.1205%2C51.5162&layer=mapnik&marker=51.5130%2C-0.1253"></iframe>
+    <p style="font-size:13px;color:var(--muted);margin:10px 0 0">
+      Map not loading? <a id="osmlink" href="#" target="_blank" rel="noopener">Open the route in OpenStreetMap</a>.
+      Stop coordinates are also listed under each stop.
+    </p>
+  </div>
+
+  <div class="card rules">
+    <h2>Before you start</h2>
+    <p><b>Stay on the pavement.</b> Do not block doorways, and do not scan anything that is not this hunt's code.</p>
+    <p><b>Buy something if you use a venue's toilet or table.</b> The venues are not paying for this and they are not obliged to host you.</p>
+    <p><b>No climbing, no touching, no trespassing.</b> Every code is at eye level and reachable from the street side.</p>
+    <p>If a code is missing or damaged, message the organiser and you get the clue directly.</p>
+  </div>
+
+  <footer>
+    Self-guided. No host on site. Evidence pack, not a compliance claim.
+    <span id="build"></span>
+  </footer>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// RUTA: editar aqui. Cada parada tiene codigo, nombre, pista y respuesta.
+// Los codigos de esta version son de DEMO y deben rotarse antes de vender.
+// ---------------------------------------------------------------------------
+const ROUTE = [
+  {
+    code: "MAIDEN",
+    name: "The Porterhouse",
+    addr: "21-22 Maiden Lane, WC2E 7NA",
+    lat: 51.51025, lon: -0.12341,
+    clue: "Start here. Look for the card by the door, not by the bar. It is at eye level.",
+  },
+  {
+    code: "MERCER",
+    name: "Stanfords",
+    addr: "7 Mercer Walk, WC2H 9FA",
+    lat: 51.51301, lon: -0.12535,
+    clue: "A shop that sells places. Find the country whose capital starts with the same letter as this street.",
+  },
+  {
+    code: "SEVEN",
+    name: "Seven Dials Market",
+    addr: "Earlham Street, WC2H 9LX",
+    lat: 51.51403, lon: -0.12605,
+    clue: "Seven streets meet at one point. Count the sundials and subtract the number of stops left.",
+  },
+  {
+    code: "MONMOUTH",
+    name: "The Crown",
+    addr: "43 Monmouth Street, WC2H 9EW",
+    lat: 51.51394, lon: -0.12685,
+    clue: "Monmouth. Before it was a street name, it was a person. The card is where the smokers stand.",
+  },
+  {
+    code: "ROSE",
+    name: "The Lamb and Flag",
+    addr: "33 Rose Street, WC2E 9EB",
+    lat: 51.51172, lon: -0.12566,
+    clue: "Last one. A pub older than the street sign. The code is under the left-hand lantern.",
+  },
+];
+
+const PRIZE_CODE = "CG-HUNT-2026";
+const KEY = "qrchunt.v1";
+
+function state(){ try { return JSON.parse(localStorage.getItem(KEY)) || {i:0}; } catch(e){ return {i:0}; } }
+function save(s){ localStorage.setItem(KEY, JSON.stringify(s)); }
+
+function render(){
+  const s = state();
+  const i = Math.min(s.i, ROUTE.length);
+  document.getElementById("progress").textContent = i + " / " + ROUTE.length;
+
+  const hint = document.getElementById("hint");
+  const msg = document.getElementById("msg");
+  const entry = document.getElementById("entryCard");
+  msg.innerHTML = "";
+
+  if (i >= ROUTE.length) {
+    hint.innerHTML = '<span class="pill prize">Finished</span><br>Show this code at The Lamb and Flag to claim your pin.<br><code class="prize">' + PRIZE_CODE + "</code>";
+    entry.style.display = "none";
+  } else {
+    const stop = ROUTE[i];
+    hint.innerHTML = '<span class="pill">Stop ' + (i+1) + ' of ' + ROUTE.length + '</span><br>' +
+                     "<strong>" + stop.name + "</strong><br>" + stop.clue;
+    entry.style.display = "block";
+  }
+
+  const list = document.getElementById("stops");
+  list.innerHTML = ROUTE.map(function(st, k){
+    const cls = k < i ? "on" : "";
+    const t = k < i ? "found" : (k === i ? "next" : "locked");
+    return '<li class="' + cls + '"><span class="n">' + (k+1) + '</span>' +
+           '<span><strong>' + st.name + '</strong><br><span class="t">' + st.addr + " · " + t + "</span></span></li>";
+  }).join("");
+}
+
+function check(){
+  const raw = (document.getElementById("code").value || "").trim().toUpperCase();
+  const msg = document.getElementById("msg");
+  const s = state();
+  const i = Math.min(s.i, ROUTE.length);
+  if (i >= ROUTE.length) return;
+
+  const expected = ROUTE[i].code;
+  if (raw === expected) {
+    s.i = i + 1; save(s);
+    document.getElementById("code").value = "";
+    render();
+    msg.className = "msg ok";
+    msg.textContent = "Correct.";
+  } else {
+    const anywhere = ROUTE.findIndex(function(st){ return st.code === raw; });
+    msg.className = "msg err";
+    if (anywhere === -1) {
+      msg.textContent = "Not a code from this hunt.";
+    } else if (anywhere > i) {
+      msg.textContent = "That is a later stop. You are on stop " + (i+1) + ".";
+    } else {
+      msg.textContent = "Already used.";
+    }
+  }
+}
+
+// Arranque por URL: ?c=CODE valida directamente (es lo que hace el QR)
+(function(){
+  const p = new URLSearchParams(location.search);
+  const c = (p.get("c") || "").toUpperCase();
+  if (c) { document.getElementById("code").value = c; check(); }
+  document.getElementById("build").textContent = " · build " + new Date().toISOString().slice(0,10);
+  document.getElementById("osmlink").href = "https://www.openstreetmap.org/#map=17/51.5126/-0.1254";
+  render();
+})();
+</script>
+</body>
+</html>
